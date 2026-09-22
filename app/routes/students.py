@@ -22,6 +22,11 @@ router = APIRouter(
 )
 
 
+# Common error response examples shown in Swagger
+ERROR_404_EXAMPLE = {"detail": "Student with id=42 not found."}
+ERROR_409_EXAMPLE = {"detail": "A student with student_id='S101' already exists."}
+
+
 # ---------------------------------------------------------------------
 # CREATE
 # ---------------------------------------------------------------------
@@ -30,19 +35,25 @@ router = APIRouter(
     response_model=StudentResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Create a new student",
+    description=(
+        "Create a new student record.\n\n"
+        "- `student_id` must be unique\n"
+        "- `email` must be unique and valid\n"
+        "- `year` must be between 1 and 4\n"
+        "- `cgpa` must be between 0.0 and 10.0"
+    ),
+    responses={
+        409: {
+            "description": "Duplicate student_id or email",
+            "content": {"application/json": {"example": ERROR_409_EXAMPLE}},
+        },
+    },
 )
 def create_student(
     payload: StudentCreate,
     db: Session = Depends(get_db),
 ):
-    """
-    Create a new student record.
-
-    - **student_id** must be unique
-    - **email** must be unique and valid
-    - **year** must be between 1 and 4
-    - **cgpa** must be between 0.0 and 10.0
-    """
+    """Create a new student record."""
     try:
         student = student_service.create_student(db, payload)
     except DuplicateStudentError as e:
@@ -60,6 +71,7 @@ def create_student(
     "",
     response_model=list[StudentResponse],
     summary="List all students",
+    description="Return a paginated list of students, sorted by internal id.",
 )
 def list_students(
     skip: int = Query(0, ge=0, description="Number of records to skip"),
@@ -77,6 +89,13 @@ def list_students(
     "/{student_pk}",
     response_model=StudentResponse,
     summary="Get a single student by internal id",
+    description="Fetch a student by their internal integer `id` (not `student_id`).",
+    responses={
+        404: {
+            "description": "Student not found",
+            "content": {"application/json": {"example": ERROR_404_EXAMPLE}},
+        },
+    },
 )
 def get_student(
     student_pk: int,
@@ -99,19 +118,29 @@ def get_student(
     "/{student_pk}",
     response_model=StudentResponse,
     summary="Update an existing student",
+    description=(
+        "Update fields on a student. Only fields included in the request body are changed.\n\n"
+        "- If `email` is changed, it must be unique.\n"
+        "- Returns 404 if the student doesn't exist.\n"
+        "- Returns 409 if the new email is already used by another student."
+    ),
+    responses={
+        404: {
+            "description": "Student not found",
+            "content": {"application/json": {"example": ERROR_404_EXAMPLE}},
+        },
+        409: {
+            "description": "Duplicate email",
+            "content": {"application/json": {"example": ERROR_409_EXAMPLE}},
+        },
+    },
 )
 def update_student(
     student_pk: int,
     payload: StudentUpdate,
     db: Session = Depends(get_db),
 ):
-    """
-    Update fields on a student. Only fields included in the request body are changed.
-
-    - If `email` is changed, it must be unique.
-    - Returns 404 if the student doesn't exist.
-    - Returns 409 if the new email is already used by another student.
-    """
+    """Update a student by internal id."""
     try:
         student = student_service.update_student(db, student_pk, payload)
     except DuplicateStudentError as e:
@@ -135,17 +164,23 @@ def update_student(
     "/{student_pk}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete a student",
+    description="Delete a student by internal id. Returns 204 on success, 404 if not found.",
+    responses={
+        404: {
+            "description": "Student not found",
+            "content": {"application/json": {"example": ERROR_404_EXAMPLE}},
+        },
+    },
 )
 def delete_student(
     student_pk: int,
     db: Session = Depends(get_db),
 ):
-    """Delete a student by internal id. Returns 204 on success, 404 if not found."""
+    """Delete a student by internal id."""
     deleted = student_service.delete_student(db, student_pk)
     if not deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Student with id={student_pk} not found.",
         )
-    # 204 No Content: return nothing
     return None
