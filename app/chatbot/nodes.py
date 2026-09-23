@@ -15,14 +15,17 @@ State keys we use:
 import os
 
 from dotenv import load_dotenv
+from langchain_core.messages import ToolMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
+
+from app.chatbot.tools import ALL_TOOLS
 
 load_dotenv()
 
 # One shared LLM instance for all nodes.
 # Note: gemini-3.6-flash uses fixed sampling defaults, so we don't pass `temperature`.
 _llm = ChatGoogleGenerativeAI(
-    model="gemini-3.6-flash",
+    model="gemini-3.1-flash-lite",
     google_api_key=os.getenv("GEMINI_API_KEY"),
 )
 
@@ -113,19 +116,92 @@ def greeting_node(state: dict) -> dict:
 
 
 # ---------------------------------------------------------------------
-# Node 2b: Handle database query (Phase 6: placeholder; Phase 7: real DB)
+# Node 2b: Handle database query using Gemini + tools
 # ---------------------------------------------------------------------
+# We use a simple tool-calling loop:
+#   1. Gemini sees the question + available tools.
+#   2. Gemini picks a tool and args (with a unique call id).
+#   3. We execute the tool and return a ToolMessage with the same call id.
+#   4. Repeat until Gemini produces a final text answer.
+# Max 5 iterations to avoid infinite loops.
+# ---------------------------------------------------------------------
+
+_SYSTEM_PROMPT = """You are a Student Database Assistant.
+
+Your job is to answer questions about students using ONLY the provided tools.
+
+Rules you MUST follow:
+1. Use the tools to look up real student information from the database.
+2. NEVER invent or guess student names, IDs, CGPAs, departments, or any other data.
+3. If a tool returns no results, honestly tell the user that no matching students were found.
+4. When listing multiple students, present the information clearly (bullet points).
+5. Keep responses concise — one or two sentences plus any data list.
+6. If the user asks something you cannot answer with these tools, say so politely.
+"""
+
+
 def database_query_node(state: dict) -> dict:
     """
-    For Phase 6: return a placeholder response indicating DB access comes later.
-    Phase 7: this will call the tools in tools.py to fetch real data.
+    Handle a database-related question by letting Gemini call the tools
+    in `app.chatbot.tools` and then phrasing the final answer.
+
     Returns: {"reply": "..."}
     """
+    question = state["question"]
+
+    # Bind the tools so Gemini can call them
+    llm_with_tools = _llm.bind_tools(ALL_TOOLS)
+
+    # Build the conversation: system prompt + user question
+    messages = [
+        ("system", _SYSTEM_PROMPT),
+        ("human", question),
+    ]
+
+    # Loop: call Gemini, execute any tools it requests, feed results back.
+    for _ in range(5):
+        response = llm_with_tools.invoke(messages)
+        messages.append(response)
+
+        # If Gemini didn't request any tools, it's done — return the text.
+        tool_calls = getattr(response, "tool_calls", None) or []
+        if not tool_calls:
+            reply = _extract_text(response.content) or "I couldn't find a good answer."
+            return {"reply": reply}
+
+        # Execute each tool Gemini asked for
+        for call in tool_calls:
+            tool_name = call["name"]
+            tool_args = call.get("args", {})
+            tool_call_id = call["id"]
+
+            matching = next((t for t in ALL_TOOLS if t.name == tool_name), None)
+            if matching is None:
+                messages.append(
+                    ToolMessage(
+                        content=f"Error: unknown tool '{tool_name}'",
+                        tool_call_id=tool_call_id,
+                    )
+                )
+                continue
+
+            try:
+                result = matching.invoke(tool_args)
+            except Exception as e:
+                result = f"Tool error: {e}"
+
+            messages.append(
+                ToolMessage(
+                    content=f"{tool_name} returned: {result}",
+                    tool_call_id=tool_call_id,
+                )
+            )
+
+    # If we somehow exhausted the loop, return a friendly error
     return {
         "reply": (
-            "I can answer database questions about students, "
-            "but the database connection for the chatbot is coming in the next phase. "
-            "In the meantime, you can browse students at /students in the API."
+            "I wasn't able to complete that lookup. "
+            "Please try rephrasing your question."
         )
     }
 
@@ -156,7 +232,7 @@ def general_node(state: dict) -> dict:
 def format_node(state: dict) -> dict:
     """
     Optional final pass — ensures the reply is clean and friendly.
-    For Phase 6 we just pass it through; can be extended later.
+    For now we just pass it through; can be extended later.
     Returns: {} (no changes)
     """
     return {}
