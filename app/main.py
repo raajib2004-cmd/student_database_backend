@@ -3,11 +3,12 @@ FastAPI application entry point.
 
 - Configures global API metadata (shown in Swagger)
 - Includes the students router (CRUD endpoints)
+- Includes the chat router (AI chatbot via LangGraph + Gemini)
 - Provides a root health check
 """
 from fastapi import FastAPI
 
-from app.routes import students
+from app.routes import chat, students
 
 # Markdown-supported description shown at the top of /docs
 API_DESCRIPTION = """
@@ -19,7 +20,7 @@ Backend API for managing student information.
 - ✅ **Validation** — email format, CGPA range, year range, required fields
 - ✅ **Error handling** — clean JSON errors for duplicates and missing students
 - ✅ **Auto documentation** — this Swagger UI is generated from the code
-- 🚧 **AI chatbot** — powered by LangGraph + Google Gemini (coming in later phases)
+- ✅ **AI chatbot** — powered by LangGraph + Google Gemini
 
 ## Notes
 
@@ -39,12 +40,17 @@ TAGS_METADATA = [
         "description": "CRUD operations for student records. "
         "Every student has a unique `student_id` (e.g., `S101`) and a unique `email`.",
     },
+    {
+        "name": "Chatbot",
+        "description": "AI chatbot powered by LangGraph + Google Gemini. "
+        "Classifies questions and returns natural-language replies.",
+    },
 ]
 
 app = FastAPI(
     title="Student Database Backend",
     description=API_DESCRIPTION,
-    version="0.4.0",
+    version="0.6.0",
     contact={
         "name": "Rajib Das",
         "url": "https://github.com/raajib2004-cmd",
@@ -56,8 +62,9 @@ app = FastAPI(
     openapi_tags=TAGS_METADATA,
 )
 
-# Attach the students router — all its endpoints now live under /students
+# Attach routers — endpoints now live under /students and /chat
 app.include_router(students.router)
+app.include_router(chat.router)
 
 
 @app.get(
