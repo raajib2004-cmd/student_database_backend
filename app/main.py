@@ -4,9 +4,11 @@ FastAPI application entry point.
 - Configures global API metadata (shown in Swagger)
 - Includes the students router (CRUD endpoints)
 - Includes the chat router (AI chatbot via LangGraph + Gemini)
-- Creates database tables on startup (essential in Docker)
+- Creates database tables on startup (via lifespan handler)
 - Provides a root health check
 """
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from app.database.connection import Base, engine
@@ -62,6 +64,25 @@ TAGS_METADATA = [
     },
 ]
 
+
+# ---------------------------------------------------------------------
+# Lifespan handler (replaces the deprecated @app.on_event)
+# ---------------------------------------------------------------------
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Application lifespan events.
+
+    Runs on startup:
+    - Creates all database tables if they don't exist.
+      Essential in Docker, where the database starts empty.
+
+    Runs on shutdown: nothing to clean up here.
+    """
+    Base.metadata.create_all(bind=engine)
+    yield
+
+
 app = FastAPI(
     title="Student Database Backend",
     description=API_DESCRIPTION,
@@ -75,22 +96,12 @@ app = FastAPI(
         "url": "https://opensource.org/licenses/MIT",
     },
     openapi_tags=TAGS_METADATA,
+    lifespan=lifespan,
 )
 
 # Attach routers — endpoints now live under /students and /chat
 app.include_router(students.router)
 app.include_router(chat.router)
-
-
-@app.on_event("startup")
-def _create_tables_on_startup():
-    """
-    Create all tables on startup if they don't already exist.
-
-    This makes the app self-initializing — essential in Docker, where the
-    database starts empty and we can't rely on a previous setup.
-    """
-    Base.metadata.create_all(bind=engine)
 
 
 @app.get(
