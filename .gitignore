@@ -36,7 +36,7 @@ Thumbs.db
 htmlcov/
 
 # Docker
-.dockerignore
+# (removed: .dockerignore should be tracked — it's a project file, not a secret)
 
 # Chroma vector database
 chroma_data/

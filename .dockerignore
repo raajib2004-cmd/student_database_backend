@@ -1,0 +1,35 @@
+# Virtual environment — never needed in the image
+.venv/
+venv/
+env/
+
+# Secrets
+.env
+
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Chroma vector data — will be regenerated inside the container
+chroma_data/
+
+# Git
+.git/
+.gitignore
+
+# VS Code
+.vscode/
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Temporary test scripts
+test_*.py

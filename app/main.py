@@ -4,10 +4,13 @@ FastAPI application entry point.
 - Configures global API metadata (shown in Swagger)
 - Includes the students router (CRUD endpoints)
 - Includes the chat router (AI chatbot via LangGraph + Gemini)
+- Creates database tables on startup (essential in Docker)
 - Provides a root health check
 """
 from fastapi import FastAPI
 
+from app.database.connection import Base, engine
+from app.models.student import Student  # noqa: F401 — registers the model with SQLAlchemy
 from app.routes import chat, students
 
 # Markdown-supported description shown at the top of /docs
@@ -62,7 +65,7 @@ TAGS_METADATA = [
 app = FastAPI(
     title="Student Database Backend",
     description=API_DESCRIPTION,
-    version="0.9.0",
+    version="1.0.0",
     contact={
         "name": "Rajib Das",
         "url": "https://github.com/raajib2004-cmd",
@@ -77,6 +80,17 @@ app = FastAPI(
 # Attach routers — endpoints now live under /students and /chat
 app.include_router(students.router)
 app.include_router(chat.router)
+
+
+@app.on_event("startup")
+def _create_tables_on_startup():
+    """
+    Create all tables on startup if they don't already exist.
+
+    This makes the app self-initializing — essential in Docker, where the
+    database starts empty and we can't rely on a previous setup.
+    """
+    Base.metadata.create_all(bind=engine)
 
 
 @app.get(

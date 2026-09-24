@@ -1,0 +1,56 @@
+# ============================================================
+# Docker Compose — runs the FastAPI app + MariaDB together
+# ============================================================
+# Usage:
+#   docker compose up --build      # build and start
+#   docker compose down            # stop and remove containers
+#   docker compose logs -f api     # follow API logs
+# ============================================================
+
+services:
+  # ------------------------------------------------------------
+  # MariaDB — the structured database
+  # ------------------------------------------------------------
+  db:
+    image: mariadb:11
+    container_name: student_db_container
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: rootpass
+      MARIADB_DATABASE: student_db
+    ports:
+      - "3307:3306"       # host:container — 3307 avoids clashing with XAMPP's 3306
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost", "-prootpass"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ------------------------------------------------------------
+  # FastAPI application
+  # ------------------------------------------------------------
+  api:
+    build: .
+    container_name: student_api_container
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Inside the compose network, the DB host is "db" (the service name)
+      DATABASE_URL: mysql+pymysql://root:rootpass@db:3306/student_db
+      # GEMINI_API_KEY must be provided via the host environment or a .env file
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      APP_NAME: Student Database Backend
+      DEBUG: "True"
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist Chroma's vectors across container restarts
+      - chroma_data:/app/chroma_data
+
+volumes:
+  db_data:
+  chroma_data:
