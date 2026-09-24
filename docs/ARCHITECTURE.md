@@ -1,5 +1,55 @@
 # Student Database Backend — Architecture
 
+This document explains how the backend is structured and how the AI chatbot works.
+
+---
+
+## High-Level Flow
+┌────────────────────┐
+│ Client / User │
+└──────────┬─────────┘
+│ HTTP
+▼
+┌────────────────────┐
+│ FastAPI │
+│ /students, /chat │
+└──────────┬─────────┘
+│
+┌──────────────────┼──────────────────┐
+│ │
+▼ ▼
+┌───────────────┐ ┌─────────────────┐
+│ CRUD Routes │ │ /chat Route │
+│ (students.py) │ │ (chat.py) │
+└───────┬───────┘ └────────┬────────┘
+│ │
+▼ ▼
+┌───────────────┐ ┌─────────────────┐
+│ Service Layer │ │ LangGraph │
+│ (SQLAlchemy) │ │ Classifier │
+└───────┬───────┘ └────────┬────────┘
+│ │
+▼ ┌──────────┼───────────┐
+┌───────────────┐ ▼ ▼ ▼
+│ MariaDB │◄───── SQL ── db_node semantic_node general
+│ (students) │ │ │
+└───────────────┘ │ │
+│ ▼
+│ ┌───────────┐
+│ │ Chroma │
+│ │ vectors │
+│ └─────┬─────┘
+│ │
+│ ▼
+│ Gemini Embeddings
+│ │
+└────┬─────┘
+▼
+┌─────────────────┐
+│ Gemini │
+│ (final reply) │
+└─────────────────┘
+
 
 ---
 
@@ -100,7 +150,7 @@ Each node returns a dict that LangGraph merges into the shared state.
 
 - All secrets (DB credentials, API keys) live in `.env` — **never committed**.
 - `.env` is in `.gitignore`; `.env.example` is the safe template.
-- No API key present in any tracked file (verified with `git grep "AIzaSy" HEAD`).
+- No API key is present in any tracked file (verified by scanning the repository for the Google API key prefix).
 - The chatbot does not echo sensitive fields unless explicitly asked.
 
 ---
@@ -116,6 +166,3 @@ Each node returns a dict that LangGraph merges into the shared state.
 | Hallucination guard | Integration test | Unknown student → "not found" message |
 
 See `tests/` (added in Phase 11).
----
-
-## High-Level Flow
