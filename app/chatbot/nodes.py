@@ -8,7 +8,7 @@ Each node:
 
 State keys we use:
   - question: the user's original question
-  - category: "greeting" | "database_query" | "general"
+  - category: "greeting" | "database_query" | "semantic_query" | "general"
   - context: any data retrieved (student info, etc.)
   - reply: the final natural-language reply
 """
@@ -23,7 +23,7 @@ from app.chatbot.tools import ALL_TOOLS
 load_dotenv()
 
 # One shared LLM instance for all nodes.
-# Note: gemini-3.6-flash uses fixed sampling defaults, so we don't pass `temperature`.
+# Note: some Gemini models use fixed sampling defaults, so we don't pass `temperature`.
 _llm = ChatGoogleGenerativeAI(
     model="gemini-3.1-flash-lite",
     google_api_key=os.getenv("GEMINI_API_KEY"),
@@ -65,7 +65,8 @@ def _extract_text(content) -> str:
 # ---------------------------------------------------------------------
 def classify_node(state: dict) -> dict:
     """
-    Ask Gemini to classify the user's question into one of three categories.
+    Ask Gemini to classify the user's question into one of four categories:
+    greeting, database_query, semantic_query, or general.
     Returns: {"category": "..."}
     """
     question = state["question"]
@@ -73,10 +74,11 @@ def classify_node(state: dict) -> dict:
     prompt = f"""Classify the following user question into exactly one of these categories:
 
 - greeting       (hello, hi, thanks, good morning, how are you, etc.)
-- database_query (asks about student records — names, IDs, CGPA, departments, counts, etc.)
+- database_query (asks about student records by ID, name, CGPA, department, counts, year, email — things stored as structured fields)
+- semantic_query (asks about skills, interests, hobbies, background, or topics a student might know — e.g., "who knows ML", "interested in mobile apps", "has backend experience", "anyone into robotics")
 - general        (everything else)
 
-Respond with ONLY one word: greeting, database_query, or general.
+Respond with ONLY one word: greeting, database_query, semantic_query, or general.
 Do not add punctuation or explanation.
 
 Question: {question}
@@ -85,9 +87,11 @@ Question: {question}
     response = _llm.invoke(prompt)
     raw = _extract_text(response.content).lower()
 
-    # Normalize to one of the three known categories
+    # Normalize to one of the four known categories
     if "greeting" in raw:
         category = "greeting"
+    elif "semantic" in raw:
+        category = "semantic_query"
     elif "database" in raw or "query" in raw:
         category = "database_query"
     else:
@@ -109,67 +113,57 @@ def greeting_node(state: dict) -> dict:
             "Hello! I'm the Student Database Assistant. "
             "You can ask me things like: "
             "\"Show me student S101\", "
-            "\"How many students are in CSE?\", or "
-            "\"Find students with CGPA above 8.\""
+            "\"How many students are in CSE?\", "
+            "\"Find students with CGPA above 8\", or "
+            "\"Who knows machine learning?\""
         )
     }
 
 
 # ---------------------------------------------------------------------
-# Node 2b: Handle database query using Gemini + tools
+# Shared system prompt for tool-using nodes
 # ---------------------------------------------------------------------
-# We use a simple tool-calling loop:
-#   1. Gemini sees the question + available tools.
-#   2. Gemini picks a tool and args (with a unique call id).
-#   3. We execute the tool and return a ToolMessage with the same call id.
-#   4. Repeat until Gemini produces a final text answer.
-# Max 5 iterations to avoid infinite loops.
-# ---------------------------------------------------------------------
-
 _SYSTEM_PROMPT = """You are a Student Database Assistant.
 
 Your job is to answer questions about students using ONLY the provided tools.
 
 Rules you MUST follow:
 1. Use the tools to look up real student information from the database.
-2. NEVER invent or guess student names, IDs, CGPAs, departments, or any other data.
+2. NEVER invent or guess student names, IDs, CGPAs, departments, bios, or any other data.
 3. If a tool returns no results, honestly tell the user that no matching students were found.
 4. When listing multiple students, present the information clearly (bullet points).
 5. Keep responses concise — one or two sentences plus any data list.
-6. If the user asks something you cannot answer with these tools, say so politely.
+6. For questions about skills, interests, or topics, use the semantic search tool.
+7. If the user asks something you cannot answer with these tools, say so politely.
 """
 
 
-def database_query_node(state: dict) -> dict:
+# ---------------------------------------------------------------------
+# Shared tool-calling loop
+# ---------------------------------------------------------------------
+def _run_tool_loop(question: str) -> dict:
     """
-    Handle a database-related question by letting Gemini call the tools
-    in `app.chatbot.tools` and then phrasing the final answer.
+    Run Gemini with tools bound, executing each tool the model requests
+    until it produces a final text answer (or we hit the iteration cap).
 
     Returns: {"reply": "..."}
     """
-    question = state["question"]
-
-    # Bind the tools so Gemini can call them
     llm_with_tools = _llm.bind_tools(ALL_TOOLS)
 
-    # Build the conversation: system prompt + user question
     messages = [
         ("system", _SYSTEM_PROMPT),
         ("human", question),
     ]
 
-    # Loop: call Gemini, execute any tools it requests, feed results back.
     for _ in range(5):
         response = llm_with_tools.invoke(messages)
         messages.append(response)
 
-        # If Gemini didn't request any tools, it's done — return the text.
         tool_calls = getattr(response, "tool_calls", None) or []
         if not tool_calls:
             reply = _extract_text(response.content) or "I couldn't find a good answer."
             return {"reply": reply}
 
-        # Execute each tool Gemini asked for
         for call in tool_calls:
             tool_name = call["name"]
             tool_args = call.get("args", {})
@@ -197,7 +191,6 @@ def database_query_node(state: dict) -> dict:
                 )
             )
 
-    # If we somehow exhausted the loop, return a friendly error
     return {
         "reply": (
             "I wasn't able to complete that lookup. "
@@ -207,7 +200,33 @@ def database_query_node(state: dict) -> dict:
 
 
 # ---------------------------------------------------------------------
-# Node 2c: Handle general questions
+# Node 2b: Handle database query using Gemini + tools
+# ---------------------------------------------------------------------
+def database_query_node(state: dict) -> dict:
+    """
+    Handle a database-related question by letting Gemini call the tools
+    in `app.chatbot.tools` and then phrasing the final answer.
+
+    Returns: {"reply": "..."}
+    """
+    return _run_tool_loop(state["question"])
+
+
+# ---------------------------------------------------------------------
+# Node 2c: Handle semantic query (skills / interests via vector search)
+# ---------------------------------------------------------------------
+def semantic_query_node(state: dict) -> dict:
+    """
+    Handle a skills/interests question using semantic search over student bios.
+    Gemini will pick the appropriate tool (usually the semantic search tool).
+
+    Returns: {"reply": "..."}
+    """
+    return _run_tool_loop(state["question"])
+
+
+# ---------------------------------------------------------------------
+# Node 2d: Handle general questions
 # ---------------------------------------------------------------------
 def general_node(state: dict) -> dict:
     """

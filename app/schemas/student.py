@@ -66,6 +66,11 @@ class StudentBase(BaseModel):
         description="Optional address",
         examples=["Guwahati, Assam"],
     )
+    bio: str | None = Field(
+        default=None,
+        description="Optional free-text bio: skills, interests, background (used for semantic search)",
+        examples=["Passionate about machine learning and neural networks."],
+    )
 
 
 class StudentCreate(StudentBase):
@@ -86,6 +91,7 @@ class StudentUpdate(BaseModel):
     year: int | None = Field(default=None, ge=1, le=4)
     cgpa: float | None = Field(default=None, ge=0.0, le=10.0)
     address: str | None = Field(default=None, max_length=255)
+    bio: str | None = None
 
 
 class StudentResponse(StudentBase):

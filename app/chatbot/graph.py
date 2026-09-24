@@ -6,14 +6,15 @@ Graph shape:
     START
       │
       ▼
-   classify  ──┬──► greeting_node ──┐
-               ├──► database_query ─┤
-               └──► general_node ───┤
-                                    ▼
-                                 format
-                                    │
-                                    ▼
-                                   END
+   classify  ──┬──► greeting_node ───┐
+               ├──► database_query ──┤
+               ├──► semantic_query ──┤
+               └──► general_node ────┤
+                                     ▼
+                                  format
+                                     │
+                                     ▼
+                                    END
 """
 from typing import TypedDict
 
@@ -25,16 +26,14 @@ from app.chatbot.nodes import (
     format_node,
     general_node,
     greeting_node,
+    semantic_query_node,
 )
 
 
 class ChatState(TypedDict, total=False):
     """
     Shared state passed between nodes.
-
-    total=False means all keys are optional — nodes can add them
-    as they go. This is what makes LangGraph merge updates instead
-    of replacing the whole state on every node return.
+    total=False means all keys are optional.
     """
 
     question: str
@@ -44,15 +43,14 @@ class ChatState(TypedDict, total=False):
 
 
 def _route_by_category(state: ChatState) -> str:
-    """
-    Conditional edge: decides which handler node to go to next
-    based on `state["category"]`.
-    """
+    """Conditional edge: pick the handler node based on `state["category"]`."""
     category = state.get("category", "general")
     if category == "greeting":
         return "greeting_node"
     if category == "database_query":
         return "database_query_node"
+    if category == "semantic_query":
+        return "semantic_query_node"
     return "general_node"
 
 
@@ -64,6 +62,7 @@ def build_graph():
     graph.add_node("classify", classify_node)
     graph.add_node("greeting_node", greeting_node)
     graph.add_node("database_query_node", database_query_node)
+    graph.add_node("semantic_query_node", semantic_query_node)
     graph.add_node("general_node", general_node)
     graph.add_node("format", format_node)
 
@@ -77,6 +76,7 @@ def build_graph():
         {
             "greeting_node": "greeting_node",
             "database_query_node": "database_query_node",
+            "semantic_query_node": "semantic_query_node",
             "general_node": "general_node",
         },
     )
@@ -84,6 +84,7 @@ def build_graph():
     # All handlers flow into `format`
     graph.add_edge("greeting_node", "format")
     graph.add_edge("database_query_node", "format")
+    graph.add_edge("semantic_query_node", "format")
     graph.add_edge("general_node", "format")
 
     # End
@@ -97,16 +98,7 @@ compiled_graph = build_graph()
 
 
 def ask(question: str) -> dict:
-    """
-    Convenience function: run the graph for a single question.
-
-    Returns:
-        {
-            "question": ...,
-            "category": ...,
-            "reply": ...
-        }
-    """
+    """Convenience function: run the graph for a single question."""
     initial_state: ChatState = {"question": question}
     final_state = compiled_graph.invoke(initial_state)
     return {

@@ -5,7 +5,7 @@ Each attribute maps to a column in the database.
 """
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Float, Integer, String, func
+from sqlalchemy import Column, DateTime, Float, Integer, String, Text, func
 
 from app.database.connection import Base
 
@@ -41,6 +41,9 @@ class Student(Base):
 
     # Optional address
     address = Column(String(255), nullable=True)
+
+    # Optional free-text bio (skills, interests, background) — used for semantic search
+    bio = Column(Text, nullable=True)
 
     # Timestamps — handled automatically
     created_at = Column(

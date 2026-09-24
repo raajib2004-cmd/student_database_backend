@@ -4,13 +4,14 @@ Tools the chatbot can use to access student data.
 This file has TWO layers:
 1. Plain Python functions (`find_student_by_student_id`, etc.) — used directly by tests.
 2. LangChain `@tool` wrappers (`tool_find_student_by_student_id`, etc.) — exposed to Gemini
-   so it can call them during `database_query_node`.
+   so it can call them during `database_query_node` and `semantic_query_node`.
 
 The docstrings on the `@tool` wrappers are important — Gemini reads them to decide
 which tool to call for a given question.
 """
 from langchain_core.tools import tool
 
+from app.chatbot.vector_store import semantic_search as _semantic_search
 from app.database.connection import SessionLocal
 from app.services import student_service
 
@@ -147,6 +148,18 @@ def tool_find_students_by_cgpa(min_cgpa: float = 0.0, max_cgpa: float = 10.0) ->
     return find_students_by_cgpa(min_cgpa, max_cgpa)
 
 
+@tool
+def tool_semantic_search_students(query: str, k: int = 5) -> list[dict]:
+    """
+    Search student bios by MEANING, not exact keywords.
+    Use this when the user asks about skills, interests, hobbies, or background
+    (e.g., "who knows machine learning", "students interested in mobile apps",
+    "anyone into robotics", "has backend experience").
+    Returns the top matching students with their bios and similarity scores.
+    """
+    return _semantic_search(query, k=k)
+
+
 # Convenient list for binding to the LLM
 ALL_TOOLS = [
     tool_find_student_by_student_id,
@@ -154,4 +167,5 @@ ALL_TOOLS = [
     tool_list_students,
     tool_count_students_in_department,
     tool_find_students_by_cgpa,
+    tool_semantic_search_students,
 ]
