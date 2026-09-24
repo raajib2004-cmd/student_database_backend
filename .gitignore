@@ -40,3 +40,6 @@ htmlcov/
 
 # Chroma vector database
 chroma_data/
+
+# pytest
+.pytest_cache/
