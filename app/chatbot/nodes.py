@@ -135,6 +135,7 @@ Rules you MUST follow:
 5. Keep responses concise — one or two sentences plus any data list.
 6. For questions about skills, interests, or topics, use the semantic search tool.
 7. If the user asks something you cannot answer with these tools, say so politely.
+8. Do NOT return emails, phone numbers, or full addresses unless the user explicitly asks for them.
 """
 
 
