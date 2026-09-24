@@ -362,7 +362,7 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for a fuller comparison.
 - `.env.example` is the safe template
 - Database connection strings are never hardcoded
 - The chatbot does **not** leak PII (emails, phone numbers, addresses) unless explicitly asked
-- Sensitive patterns are checked with `git grep "AIzaSy" HEAD` before each release
+- Sensitive patterns are checked by scanning the repo for the Google API key prefix before each release
 
 See [`docs/SECURITY.md`](docs/SECURITY.md) for the full model.
 
